@@ -1,6 +1,10 @@
 from functools import wraps
-from typing import Self
+from collections import UserDict
 import pandas as pd
+try:
+    from typing import Self
+except ImportError:
+    from typing_extensions import Self
 
 
 # def validate_fields(expected_type):
@@ -18,24 +22,27 @@ import pandas as pd
 #
 #     return decorator
 
-def register_fields(prefix):
 
-    print(prefix)
-    def decorator(func):
+def register_fields(func):
 
-        @wraps(func)
-        def wrapper(self, *fields):
-            print(f"registering {prefix} fields: {fields}")
-            self._registered_fields[prefix] = []
-            for field in fields:
-                if not isinstance(field, str):
-                    raise ValueError("only strings work atm")
-                self._registered_fields[prefix].append(field)
-            return func(self)
+    @wraps(func)
+    def wrapper(self, *fields):
+        prefix = wrapper.__name__
+        print(prefix)
+        print(f"registering {prefix} fields: {fields}")
+        self._registered_fields[prefix] = []
+        for field in fields:
+            if not isinstance(field, str):
+                raise ValueError("only strings work atm")
+            self._registered_fields[prefix].append(field)
 
-        return wrapper
+        return func(self)
 
-    return decorator
+    return wrapper
+
+
+class Fields(UserDict):
+    ...
 
 
 class Query:
@@ -44,52 +51,62 @@ class Query:
         self.db = db
         self._registered_fields = {}
 
-    @register_fields("SELECT")
-    def select(self, *columns) -> Self:
+    @register_fields
+    def CREATE_TABLE(self, *fields) -> Self:
         return self
 
-    # @register_fields("SELECT")
-    # def select_table(self, *tables) -> Self:
-    #     return self
-
-    @register_fields("PRAGMA")
-    def pragma(self, *fields) -> Self:
+    @register_fields
+    def DELETE(self, *fields) -> Self:
         return self
 
-    @register_fields("FROM")
-    def from_(self, *tables) -> Self:
+    @register_fields
+    def FROM(self, *fields) -> Self:
         return self
 
-    @register_fields("WHERE")
-    def where(self, *conditions) -> Self:
+    @register_fields
+    def INNER_JOIN(self, *fields) -> Self:
         return self
 
-    @register_fields("INSERT_INTO")
-    def insert_into(self, *tables) -> Self:
+    @register_fields
+    def INTO(self, *fields) -> Self:
         return self
 
-    @register_fields("VALUES")
-    def values(self, *values) -> Self:
+    @register_fields
+    def INSERT(self, *fields) -> Self:
         return self
 
-    @register_fields("INNER_JOIN")
-    def inner_join(self, *joins) -> Self:
+    @register_fields
+    def LIMIT(self, *fields) -> Self:
         return self
 
-    @register_fields("DELETE")
-    def delete(self, *statements) -> Self:
+    @register_fields
+    def ON(self, *fields) -> Self:
         return self
 
-    @register_fields("CREATE_TABLE")
-    def create_table(self, *fields) -> Self:
+    @register_fields
+    def ORDER_BY(self, *fields) -> Self:
         return self
 
-    @register_fields("ORDER_BY")
-    def order_by(self, *orders) -> Self:
+    @register_fields
+    def PRAGMA(self, *fields) -> Self:
+        return self
+
+    @register_fields
+    def SELECT(self, *fields) -> Self:
+        return self
+
+    @register_fields
+    def VALUES(self, *fields) -> Self:
+        return self
+
+    @register_fields
+    def WHERE(self, *fields) -> Self:
         return self
 
     def to_sql(self) -> str:
-        """"""
+        """Converts the query from it's internal `Query` representation
+        into a string that is the exact SQL query being executed."""
+
         statements = []
         for prefix, fields in self._registered_fields.items():
             statement = prefix + " " + ",".join(fields)
@@ -98,16 +115,19 @@ class Query:
         sort_by = (
             "SELECT",
             "PRAGMA",
-            "FROM",
-            #"AS",
-            "WHERE",
-            "INNER_JOIN",
-            "INSERT_INTO",
-            "VALUES",
+            "INSERT",
             "DELETE",
             "CREATE_TABLE",
-            "ORDER_BY"
+            "VALUES",
+            "FROM",
+            "INTO",
+            "INNER_JOIN",
+            "ON",
+            "WHERE",
+            "ORDER_BY",
+            "LIMIT",
         )
+
         statements = sorted(statements, key=lambda x: sort_by.index(x.split(" ")[0]))
         statements = [statement.replace("_", " ") for statement in statements]
         sql_query = "\n".join(statements) + ";"
@@ -115,11 +135,11 @@ class Query:
         return sql_query
 
     def to_df(self) -> pd.DataFrame:
-        """"""
+        """Executes the current query and outputs result as pandas DataFrame."""
         return pd.read_sql(self.to_sql(), self.db.connection)
 
     def execute(self):
-        """"""
+        """Executes the current query and returns Cursor iterator."""
         return self.db.cursor.execute(self.to_sql())
 
     def executemany(self, rows):
@@ -129,3 +149,6 @@ class Query:
     def commit(self):
         """"""
         return self.db.connection.commit()
+
+    def __repr__(self):
+        return self.to_sql()
