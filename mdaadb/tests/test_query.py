@@ -5,7 +5,6 @@ from ..query import Query
 class TestQuery:
 
 
-
     def test_SELECT(self):
         correct_q = "SELECT simID\nFROM simulations;"
         q = Query(db="dummy").SELECT("simID").FROM("simulations").to_sql()

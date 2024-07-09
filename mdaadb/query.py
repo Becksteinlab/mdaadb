@@ -50,7 +50,7 @@ class Query:
 
     Parameters
     ----------
-    db : ``Database`` or path-like
+    db : `Database` or path-like
         Database to execute queries on. If path-like, will
         call `Database(db)`. Use ":memory:" to execute queries
         on a temporary in memory database.
@@ -139,7 +139,7 @@ class Query:
         self.db.connection.commit()
 
     @register_command()
-    def CREATE_TABLE(self, tbl_schema) -> Self:
+    def CREATE_TABLE(self, tbl_schema: str) -> Self:
         """Add CREATE TABLE command to the current Query.
 
         Parameters
@@ -168,7 +168,7 @@ class Query:
         return self
 
     @register_command()
-    def FROM(self, *tables) -> Self:
+    def FROM(self, *tables: str) -> Self:
         """Add FROM command to the current Query.
 
         Parameters
@@ -185,7 +185,7 @@ class Query:
         return self
 
     @register_command(dependency="FROM")
-    def INNER_JOIN(self, table) -> Self:
+    def INNER_JOIN(self, table: str) -> Self:
         """Add INNER JOIN command to the current Query.
 
         Parameters
@@ -201,9 +201,9 @@ class Query:
         """
         return self
 
-    @register_command(dependency="INSERT")
-    def INTO(self, table) -> Self:
-        """Add (INSERT) INTO command to the current Query.
+    @register_command()
+    def INSERT_INTO(self, table: str) -> Self:
+        """Add INSERT INTO command to the current Query.
 
         Parameters
         ----------
@@ -218,25 +218,14 @@ class Query:
         """
         return self
 
-    @register_command(dependency="INTO")
-    def INSERT(self) -> Self:
-        """Add INSERT (INTO) command to the current Query.
-
-        Returns
-        -------
-        self : Query
-            ...
-
-        """
-        return self
 
     @register_command()
-    def LIMIT(self, limit: int) -> Self:
+    def LIMIT(self, limit: str) -> Self:
         """Add LIMIT command to the current Query.
 
         Parameters
         ----------
-        limit : int
+        limit : str
             ...
 
         Returns
@@ -248,12 +237,12 @@ class Query:
         return self
 
     @register_command(dependency="INNER JOIN")
-    def ON(self, condition) -> Self:
+    def ON(self, match: str) -> Self:
         """Add ON command to the current Query.
 
         Parameters
         ----------
-        condition
+        match : str
             ...
 
         Returns
@@ -265,12 +254,12 @@ class Query:
         return self
 
     @register_command()
-    def ORDER_BY(self, *columns) -> Self:
+    def ORDER_BY(self, *columns: str) -> Self:
         """Add ORDER BY command to the current Query.
 
         Parameters
         ----------
-        *columns
+        *columns : str
             ...
 
         Returns
@@ -282,12 +271,12 @@ class Query:
         return self
 
     @register_command()
-    def PRAGMA(self, *fields) -> Self:
+    def PRAGMA(self, schema_name: str) -> Self:
         """Add PRAGMA command to the current Query.
 
         Parameters
         ----------
-        *fields
+        schema_name
             ...
 
         Returns
@@ -299,12 +288,12 @@ class Query:
         return self
 
     @register_command(dependency="FROM")
-    def SELECT(self, *columns) -> Self:
+    def SELECT(self, *columns: str) -> Self:
         """Add SELECT command to the current Query.
 
         Parameters
         ----------
-        *columns : iterable of str
+        *columns : str
             ...
 
         Returns
@@ -316,7 +305,7 @@ class Query:
         return self
 
     @register_command(dependency="FROM")
-    def SELECT_COUNT(self, column) -> Self:
+    def SELECT_COUNT(self, column: str) -> Self:
         """Add SELECT COUNT command to the current Query.
 
         Parameters
@@ -334,7 +323,7 @@ class Query:
 
 
     @register_command(dependency="INSERT")
-    def VALUES(self, values) -> Self:
+    def VALUES(self, values: str) -> Self:
         """Add VALUES command to the current Query.
 
         Parameters
@@ -351,12 +340,12 @@ class Query:
         return self
 
     @register_command()
-    def WHERE(self, condition) -> Self:
+    def WHERE(self, condition: str) -> Self:
         """Add WHERE command to the current Query.
 
         Parameters
         ----------
-        conditions
+        condition : str
             ...
 
         Returns
