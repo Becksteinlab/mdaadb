@@ -5,9 +5,10 @@ import pandas as pd
 from pathlib import Path
 from dataclasses import dataclass
 from collections import namedtuple, UserDict
-from typing import List, Iterable, Any
+from typing import Optional, List, NamedTuple, Iterable, Any
+from numpy.typing import ArrayLike
 
-from .query import Query
+from . import query
 
 
 def _namedtuple_factory(cursor, row):
@@ -26,14 +27,14 @@ class Database:
 
     Parameters
     ----------
-    dbfile : pathlib.Path or str
-        ...
+    dbfile : path-like
+        Path to the database file.
+        Use ':memory:' for a temporary in-memory database.
 
     """
 
     def __init__(self, dbfile: Path | str):
-        if isinstance(dbfile, str):
-            self.dbfile = Path(dbfile)
+        self.dbfile = Path(dbfile)
         self.connection = sqlite3.connect(self.dbfile)
         self.connection.row_factory = _namedtuple_factory
         self.cursor = self.connection.cursor()
@@ -44,22 +45,28 @@ class Database:
     def __contains__(self, table):
         return table.db == self
 
-    def table(self, name):
-        """...
+    @property
+    def schema(self) -> pd.DataFrame:
+        """Get the database schema as a `pandas.DataFrame`."""
+        return self._schema.to_df()
 
-        Parameters
-        ----------
-        name : str
-            table name
+    @property
+    def _schema(self) -> Table:
+        return Table("sqlite_schema", self)
 
-        Returns
-        -------
-        Table
+    @property
+    def table_list(self) -> pd.DataFrame:
+        """Get a list of tables as a `pandas.DataFrame`."""
+        return (
+            self._table_list
+            .SELECT("*")
+            .WHERE("schema='main'")
+            .to_df()
+        )
 
-        """
-        if name not in self._get_table_names():
-            raise ValueError("invalid table")
-        return Table(name, self)
+    @property
+    def _table_list(self) -> Table:
+        return Table("pragma_table_list", self)
 
     @property
     def tables(self):
@@ -72,25 +79,42 @@ class Database:
         return (Table(name, self) for name in self._get_table_names())
 
     def _get_table_names(self) -> List[str]:
+        """Helper function to get table names in this database."""
+        return list(self.table_list["name"])
+
+    def get_table(self, tbl_name) -> Table:
         """...
+
+        Parameters
+        ----------
+        tbl_name : str
+            Table name
 
         Returns
         -------
+        Table
 
         """
-        table_names = (
-            self.SELECT("name")
-            .FROM("sqlite_schema")
-            .WHERE("type = 'table'")
-            .execute()
-            .fetchall()
-        )
-        return [name[0] for name in table_names]
+        if tbl_name not in self._get_table_names():
+            raise ValueError("invalid table")
+        return Table(tbl_name, self)
 
-    @property
-    def schema(self) -> pd.DataFrame:
-        """Get the database schema as a `pandas.DataFrame`"""
-        return Query(db=self).SELECT("*").FROM("sqlite_schema").to_df()
+    def create_table(self, tbl_schema: str) -> None:
+        """Create a table inside this database.
+
+        Parameters
+        ----------
+        tbl_schema : str
+            Table schema that defines the table and column names.
+
+        Note
+        ----
+        `self.connection` is used a context manager so that
+        `self.connection.commit()` is automatically called.
+
+        """
+        with self.connection:
+            self.CREATE_TABLE(tbl_schema).execute()
 
     def insert_row_into_table(self, table, row) -> None:
         """...
@@ -117,7 +141,7 @@ class Database:
         ----------
         table : Table or str
             ...
-        array : array_like
+        array : `ArrayLike`
             ...
 
         Returns
@@ -128,37 +152,35 @@ class Database:
             table = Table(table, self)
         table.insert_array(array)
 
-    def CREATE_TABLE(self, name, schema) -> Query:
-        """SQLite CREATE_TABLE Statment entry point for ``Query``.
+    def CREATE_TABLE(self, tbl_schema) -> query.Query:
+        """SQLite CREATE_TABLE Statment entry point for ``query.Query``.
 
         Parameters
         ----------
-        name : str
-            ...
-        schema : str
+        tbl_schema : str
             ...
 
         Returns
         -------
-        Query
+        query.Query
             ...
 
         """
-        return Query(db=self).CREATE_TABLE(name, schema)
+        return query.Query(db=self).CREATE_TABLE(tbl_schema)
 
-    def DELETE(self) -> Query:
-        """SQLite DELETE Statment entry point for ``Query``.
+    def DELETE(self) -> query.Query:
+        """SQLite DELETE Statment entry point for ``query.Query``.
 
         Returns
         -------
-        Query
+        query.Query
             ...
 
         """
-        return Query(db=self).DELETE()
+        return query.Query(db=self).DELETE()
 
-    def FROM(self, *tables) -> Query:
-        """SQLite FROM Statment entry point for ``Query``.
+    def FROM(self, *tables) -> query.Query:
+        """SQLite FROM Statment entry point for ``query.Query``.
 
         Parameters
         ----------
@@ -167,14 +189,14 @@ class Database:
 
         Returns
         -------
-        Query
+        query.Query
             ...
 
         """
-        return Query(db=self).FROM(*tables)
+        return query.Query(db=self).FROM(*tables)
 
-    def INNER_JOIN(self, table) -> Query:
-        """SQLite INNER_JOIN Statment entry point for ``Query``.
+    def INNER_JOIN(self, table) -> query.Query:
+        """SQLite INNER_JOIN Statment entry point for ``query.Query``.
 
         Parameters
         ----------
@@ -183,24 +205,24 @@ class Database:
 
         Returns
         -------
-        Query
+        query.Query
             ...
 
         """
-        return Query(db=self).INNER_JOIN(table)
+        return query.Query(db=self).INNER_JOIN(table)
 
-    def INSERT(self) -> Query:
-        """SQLite INSERT Statment entry point for ``Query``.
+    def INSERT(self) -> query.Query:
+        """SQLite INSERT Statment entry point for ``query.Query``.
 
         Returns
         -------
-        Query
+        query.Query
 
         """
-        return Query(db=self).INSERT()
+        return query.Query(db=self).INSERT()
 
-    def INTO(self, table) -> Query:
-        """SQLite INTO Statment entry point for ``Query``.
+    def INTO(self, table) -> query.Query:
+        """SQLite INTO Statment entry point for ``query.Query``.
 
         Parameters
         ----------
@@ -209,14 +231,14 @@ class Database:
 
         Returns
         -------
-        Query
+        query.Query
             ...
 
         """
-        return Query(db=self).INTO(table)
+        return query.Query(db=self).INTO(table)
 
-    def LIMIT(self, limit: int) -> Query:
-        """SQLite LIMIT Statment entry point for ``Query``.
+    def LIMIT(self, limit: int) -> query.Query:
+        """SQLite LIMIT Statment entry point for ``query.Query``.
 
         Parameters
         ----------
@@ -225,14 +247,14 @@ class Database:
 
         Returns
         -------
-        Query
+        query.Query
             ...
 
         """
-        return Query(db=self).LIMIT(limit)
+        return query.Query(db=self).LIMIT(limit)
 
-    def ON(self, condition) -> Query:
-        """SQLite ON Statment entry point for ``Query``.
+    def ON(self, condition) -> query.Query:
+        """SQLite ON Statment entry point for ``query.Query``.
 
         Parameters
         ----------
@@ -241,14 +263,14 @@ class Database:
 
         Returns
         -------
-        Query
+        query.Query
             ...
 
         """
-        return Query(db=self).ON(condition)
+        return query.Query(db=self).ON(condition)
 
-    def ORDER_BY(self, *fields) -> Query:
-        """SQLite ORDER BY Statment entry point for ``Query``.
+    def ORDER_BY(self, *fields) -> query.Query:
+        """SQLite ORDER BY Statment entry point for ``query.Query``.
 
         Parameters
         ----------
@@ -257,14 +279,14 @@ class Database:
 
         Returns
         -------
-        Query
+        query.Query
             ...
 
         """
-        return Query(db=self).ORDER_BY(*fields)
+        return query.Query(db=self).ORDER_BY(*fields)
 
-    def PRAGMA(self, *fields) -> Query:
-        """SQLite PRAGMA Statment entry point for ``Query``.
+    def PRAGMA(self, *fields) -> query.Query:
+        """SQLite PRAGMA Statment entry point for ``query.Query``.
 
         Parameters
         ----------
@@ -273,14 +295,14 @@ class Database:
 
         Returns
         -------
-        Query
+        query.Query
             ...
 
         """
-        return Query(db=self).PRAGMA(*fields)
+        return query.Query(db=self).PRAGMA(*fields)
 
-    def SELECT(self, *columns) -> Query:
-        """SQLite SELECT Statment entry point for ``Query``.
+    def SELECT(self, *columns) -> query.Query:
+        """SQLite SELECT Statment entry point for ``query.Query``.
 
         Parameters
         ----------
@@ -289,14 +311,30 @@ class Database:
 
         Returns
         -------
-        Query
+        query.Query
             ...
 
         """
-        return Query(db=self).SELECT(*columns)
+        return query.Query(db=self).SELECT(*columns)
 
-    def VALUES(self, values) -> Query:
-        """SQLite VALUES Statment entry point for ``Query``.
+    def SELECT_COUNT(self, column) -> query.Query:
+        """SQLite SELECT COUNT Statment entry point for ``query.Query``.
+
+        Parameters
+        ----------
+        column
+            ...
+
+        Returns
+        -------
+        query.Query
+            ...
+
+        """
+        return query.Query(db=self).SELECT_COUNT(column)
+
+    def VALUES(self, values) -> query.Query:
+        """SQLite VALUES Statment entry point for ``query.Query``.
 
         Parameters
         ----------
@@ -305,14 +343,14 @@ class Database:
 
         Returns
         -------
-        Query
+        query.Query
             ...
 
         """
-        return Query(db=self).VALUES(*values)
+        return query.Query(db=self).VALUES(*values)
 
-    def WHERE(self, condition) -> Query:
-        """SQLite WHERE Statment entry point for ``Query``.
+    def WHERE(self, condition) -> query.Query:
+        """SQLite WHERE Statment entry point for ``query.Query``.
 
         Parameters
         ----------
@@ -321,11 +359,11 @@ class Database:
 
         Returns
         -------
-        Query
+        query.Query
             ...
 
         """
-        return Query(db=self).WHERE(condition)
+        return query.Query(db=self).WHERE(condition)
 
 
 @dataclass
@@ -334,65 +372,31 @@ class Table:
     db: Database
 
     @property
-    def schema(self) -> str:
-        """"""
+    def info(self) -> pd.DataFrame:
+        """Get the PRAGMA info table as a `pandas.DataFrame`."""
         return (
             self.db
-            .SELECT("sql")
-            .FROM("sqlite_schema")
-            .WHERE(f"name = '{self.name}'")
-            .execute()
-            .fetchone()[0]
+            .PRAGMA(f"table_info('{self.name}')")
+            .to_df()
         )
 
     @property
-    def info(self) -> pd.DataFrame:
-        """
+    def _info(self) -> Table:
+        return Table(f"pragma_table_info('{self.name}')", self.db)
 
-        Returns
-        -------
-        pd.DataFrame
-
-        """
-        return self.db.PRAGMA(f"table_info('{self.name}')").to_df()
-
-    def row(self, id:int) -> Row:
-        """
-
-        Parameters
-        ----------
-        id : int
-
-        Returns
-        -------
-        Row
-
-        Raises
-        ------
-
-        """
-        if id not in self._get_row_ids():
-            raise ValueError("id not in valid ids")
-        return Row(id, self)
-
-    def column(self, name:str) -> Column:
-        """
-
-        Parameters
-        ----------
-        name : str
-
-        Returns
-        -------
-        Column
-
-        Raises
-        ------
-
-        """
-        if name not in self._get_column_names():
-            raise ValueError("name not in column names")
-        return Column(name, self)
+    @property
+    def schema(self) -> str:
+        """Get the schema/structure of this table."""
+        _schema = (
+            self.db
+            ._schema
+            .SELECT("sql")
+            .WHERE("name='table1'")
+            .execute()
+            .fetchone()
+            .sql
+        )
+        return _schema.replace("CREATE TABLE ", "")
 
     @property
     def n_rows(self) -> int:
@@ -402,7 +406,15 @@ class Table:
     @property
     def n_cols(self) -> int:
         """Total number of columns in this table."""
-        return len(self._get_column_names())
+        return (
+            self.db.
+            _table_list
+            .SELECT("ncol")
+            .WHERE(f"name='{self.name}'")
+            .execute()
+            .fetchone()
+            .ncol
+        )
 
     @property
     def rows(self) -> Iterable[Row]:
@@ -414,42 +426,79 @@ class Table:
         """An iterable of Columns contained in this table."""
         return (Column(name, self) for name in self._get_column_names())
 
+    def get_row(self, id: int) -> Row:
+        """
+
+        Parameters
+        ----------
+        id : int
+            INT PRIMARY KEY rowid
+
+        Returns
+        -------
+        Row
+
+        Raises
+        ------
+        ValueError
+
+        """
+        if id not in self._get_row_ids():
+            raise ValueError(f"id {id} not in row ids")
+        return Row(id, self)
+
+    def get_column(self, name: str) -> Column:
+        """
+
+        Parameters
+        ----------
+        name : str
+            Name of the column
+
+        Returns
+        -------
+        Column
+
+        Raises
+        ------
+        ValueError
+
+        """
+        if name not in self._get_column_names():
+            raise ValueError("name not in column names")
+        return Column(name, self)
+
     def _get_row_ids(self) -> List[int]:
         """Helper function that returns a list of integer indices
         that correspond to the primary key of this table."""
         row_ids = (
-            self.SELECT(self.primary_key)
+            self.SELECT(self.pk)
             .execute()
             .fetchall()
         )
         return [id[0] for id in row_ids]
 
     def _get_column_names(self) -> List[str]:
-        """Helper function that returns a list of column names for this table.."""
-        column_names = (
-            self.db
-            .SELECT("name")
-            .FROM(f"pragma_table_info('simulations')")
-            .execute()
-            .fetchall()
-        )
-        return [name[0] for name in column_names]
+        return list(self.info["name"])
 
     @property
-    def primary_key(self) -> str:
-        """Returns the primary key of this table as a string."""
+    def pk(self) -> str:
+        """Get the primary key of this table."""
         result = (
-            self.db
+            self._info
             .SELECT("name")
-            .FROM(f"pragma_table_info('{self.name}') as tblinfo")
-            .WHERE("tblinfo.pk = 1")
+            .WHERE("pk=1")
             .execute()
-            .fetchall()
+            .fetchone()
         )
-        assert len(result[0]) == 1
-        return result[0][0]
 
-    def insert_row(self, row) -> None:
+        if result is None:
+            # if the table has no INT PRIMARY KEY, 'rowid' is the default
+            return "rowid"
+
+        return result.name
+
+    def insert_row(self, row):
         """
 
         Parameters
@@ -457,14 +506,14 @@ class Table:
         row : Row | tuple
 
         """
-        return (
-            self.db
-            .INSERT()
-            .INTO(self.name)
-            .VALUES(row)
-            .execute()
-            .commit()
-        )
+        with self.db.connection:
+            (
+                self.db
+                .INSERT()
+                .INTO(self.name)
+                .VALUES(row)
+                .execute()
+            )
 
     def insert_array(self, array) -> None:
         """
@@ -476,67 +525,76 @@ class Table:
         """
         n_cols = self.n_cols
         values = "(" + ", ".join(["?" for _ in range(n_cols)]) + ")"
-        return (
-            self.db
-            .INSERT()
-            .INTO(self.name)
-            .VALUES(values)
-            .executemany(array)
-            .commit()
-        )
+        with self.db.connection:
+            (
+                self.db
+                .INSERT()
+                .INTO(self.name)
+                .VALUES(values)
+                .executemany(array)
+            )
 
-    def DELETE(self, *rows) -> Query:
+    def DELETE(self) -> query.Query:
+        """
+
+        Returns
+        -------
+        query.Query
+
+        """
+        return self.db.DELETE().FROM(self.name)
+
+    def INSERT(self) -> query.Query:
+        """
+
+        Returns
+        -------
+        query.Query
+
+        """
+        return self.db.INSERT().INTO(self.name)
+
+    def SELECT(self, *columns) -> query.Query:
         """
 
         Parameters
         ----------
-        *rows
+        *columns : iterable of str
 
         Returns
         -------
-        Query
-
-        """
-        return self.db.DELETE(*rows).FROM(self.name)
-
-    def INSERT(self, *rows) -> Query:
-        """
-
-        Parameters
-        ----------
-
-        Returns
-        -------
-        Query
-
-        """
-        return self.db.INSERT(*rows).INTO(self.name)
-
-    def SELECT(self, *columns) -> Query:
-        """
-
-        Parameters
-        ----------
-
-        Returns
-        -------
-        Query
+        query.Query
 
         """
         return self.db.SELECT(*columns).FROM(self.name)
 
-    def WHERE(self, *conditions) -> Query:
+    def SELECT_COUNT(self, column) -> query.Query:
         """
 
         Parameters
         ----------
+        column : str
 
         Returns
         -------
-        Query
+        query.Query
 
         """
-        return self.db.WHERE(*conditions).FROM(self.name)
+        return self.db.SELECT_COUNT(column).FROM(self.name)
+
+    def WHERE(self, condition) -> query.Query:
+        """
+
+        Parameters
+        ----------
+        condition
+
+        Returns
+        -------
+        query.Query
+
+        """
+        return self.db.WHERE(condition)
 
     def to_sql(self) -> str:
         """Returns the sqlite query that generates this table."""
@@ -569,7 +627,7 @@ class Row:
         return (
             self.table
             .SELECT("*")
-            .WHERE(f"{self.table.primary_key}={self.id}")
+            .WHERE(f"{self.table.pk}={self.id}")
             .execute()
             .fetchall()
         )
@@ -579,7 +637,7 @@ class Row:
         return (
             self.table
             .SELECT("*")
-            .WHERE(f"{self.table.primary_key}={self.id}")
+            .WHERE(f"{self.table.pk}={self.id}")
             .to_sql()
         )
 
@@ -601,15 +659,14 @@ class Column:
     @property
     def type_(self) -> str:
         """"""
-        _type = (
-            Query(db=self.db)
+        return (
+            self.table._info
             .SELECT("type")
-            .FROM(f"pragma_table_info('{self.table.name}') as t_info")
-            .WHERE(f"t_info.name='{self.name}'")
+            .WHERE(f"name='{self.name}'")
             .execute()
-            .fetchall()
+            .fetchone()
+            .type
         )
-        return _type[0][0]
 
     @property
     def data(self) -> List[Any]:

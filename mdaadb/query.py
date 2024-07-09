@@ -6,8 +6,10 @@ try:
     from typing import Self
 except ImportError:
     from typing_extensions import Self
-
+import pathlib
 import pandas as pd
+
+from . import database
 
 
 def register_command(dependency=None):
@@ -25,7 +27,7 @@ def register_command(dependency=None):
                 Command(keyword, fields, dependency)
             )
 
-            return func(self)
+            return func(self, *args)
 
         return wrapper
 
@@ -48,26 +50,33 @@ class Query:
 
     Parameters
     ----------
-    db : Database or Path or str
-        ...
+    db : ``Database`` or path-like
+        Database to execute queries on. If path-like, will
+        call `Database(db)`. Use ":memory:" to execute queries
+        on a temporary in memory database.
 
     """
 
     def __init__(self, db):
-        self.db = db
+        if isinstance(db, pathlib.Path) or isinstance(db, str):
+            self.db = database.Database(db)
+        else:
+            assert isinstance(db, database.Database)
+            self.db = db
         self.registered_commands: List[Command] = []
 
     def __repr__(self):
         return self.to_sql()
 
     def to_sql(self) -> str:
-        """Converts the query from it's internal `Query` representation
-        into a string that is the exact SQLite query being executed.
+        """Convert the query from it's internal `Query` representation
+        into a string that is the exact SQLite query/statement being executed.
 
         Returns
         -------
-        sql_query : str
-            ...
+        statement : str
+            The complete SQLite statement to be executed
+            with proper SQL syntax.
 
         Raises
         ------
@@ -81,7 +90,7 @@ class Query:
         cmds = self.registered_commands
 
         if not cmds:
-            raise ValueError
+            raise ValueError("Query must consist of at least one command.")
 
         keywords = [cmd.keyword for cmd in cmds]
         for cmd in cmds:
@@ -91,14 +100,12 @@ class Query:
                     raise ValueError("dependency not found in command")
 
 
-        sql_query = "\n".join([cmd.to_sql() for cmd in cmds]) + ";"
+        statement = "\n".join([cmd.to_sql() for cmd in cmds]) + ";"
 
-        return sql_query
+        return statement
 
     def to_df(self) -> pd.DataFrame:
         """Execute the current Query and return result as pandas DataFrame."""
-        if self.db is None:
-            raise ValueError("No database to execute query on.")
         return pd.read_sql(self.to_sql(), self.db.connection)
 
     def execute(self):
@@ -109,14 +116,7 @@ class Query:
         `sqlite3.Cursor`
             Database cursor iterator that iterators over results of query
 
-        Raises
-        ------
-        ValueError
-            If `self.db is None`
-
         """
-        if self.db is None:
-            raise ValueError("No database to execute query on.")
         return self.db.cursor.execute(self.to_sql())
 
     def executemany(self, rows):
@@ -131,14 +131,7 @@ class Query:
         `sqlite3.Cursor`
             Database cursor iterator that iterates over results of query
 
-        Raises
-        ------
-        ValueError
-            If `self.db is None`
-
         """
-        if self.db is None:
-            raise ValueError("No database to execute query on.")
         return self.db.cursor.executemany(self.to_sql(), rows)
 
     def commit(self):
@@ -146,15 +139,13 @@ class Query:
         self.db.connection.commit()
 
     @register_command()
-    def CREATE_TABLE(self, name, schema) -> Self:
+    def CREATE_TABLE(self, tbl_schema) -> Self:
         """Add CREATE TABLE command to the current Query.
 
         Parameters
         ----------
-        name : str
-            ...
-        schema : str
-            ...
+        tbl_schema : str
+            The table schema/structure.
 
         Returns
         -------
@@ -313,7 +304,7 @@ class Query:
 
         Parameters
         ----------
-        columns : iterable of str
+        *columns : iterable of str
             ...
 
         Returns
@@ -323,6 +314,24 @@ class Query:
 
         """
         return self
+
+    @register_command(dependency="FROM")
+    def SELECT_COUNT(self, column) -> Self:
+        """Add SELECT COUNT command to the current Query.
+
+        Parameters
+        ----------
+        column : str
+            ...
+
+        Returns
+        -------
+        self : Query
+            ...
+
+        """
+        return self
+
 
     @register_command(dependency="INSERT")
     def VALUES(self, values) -> Self:
