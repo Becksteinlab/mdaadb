@@ -322,7 +322,7 @@ class Query:
         return self
 
 
-    @register_command(dependency="INSERT")
+    @register_command(dependency="INSERT INTO")
     def VALUES(self, values: str) -> Self:
         """Add VALUES command to the current Query.
 
