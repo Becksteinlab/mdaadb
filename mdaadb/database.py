@@ -17,9 +17,36 @@ def _namedtuple_factory(cursor, row):
     return Row(*row)
 
 
-class Tables(UserDict):
-    def __init__(self, db, *args, **kwargs):
-        self.db = db
+def touch(dbfile: pathlib.Path | str) -> None:
+    """Create a minimal database file.
+
+    A legal database includes a 'Simulations' and 'Observables' table
+    at a minimum. 'Simulations' must contain 'simID', 'topology', and
+    'trajectory' columns. 'Observables' must contain 'name' and 'progenitor'
+    columns.
+
+    Parameters
+    ----------
+    dbfile : path-like
+        Path to database file.
+
+    Raises
+    ------
+    ValueError
+        If database already exists.
+
+    """
+    if isinstance(dbfile, str):
+        dbfile = pathlib.Path(dbfile)
+
+    if dbfile.exists():
+        raise ValueError(f"{dbfile} already exists")
+
+    with Database(dbfile) as db:
+        sim_schema = "Simulations (simID INT PRIMARY KEY, topology TEXT, trajectory TEXT)"
+        db.create_table(sim_schema)
+        obs_schema = "Observables (name TEXT, progenitor TEXT)"
+        db.create_table(obs_schema)
 
 
 class Database:
@@ -39,10 +66,14 @@ class Database:
             self.dbfile = pathlib.Path(dbfile)
         else:
             self.dbfile = dbfile
+
         self.connection = None
         self.cursor = None
 
         self.open()
+
+    def __contains__(self, table: Table) -> bool:
+        return table.db == self
 
     def __enter__(self):
         return self
@@ -52,9 +83,6 @@ class Database:
 
     def __iter__(self):
         return iter(self.tables)
-
-    def __contains__(self, table: Table) -> bool:
-        return table.db == self
 
     def open(self):
         if self.connection is None:
@@ -166,7 +194,7 @@ class Database:
             table = Table(table, self)
         table.insert_row(row)
 
-    def insert_array_into_table(self, table: Table | str, array: ArrayLike) -> None:
+    def insert_array_into_table(self, table: Table | str, array: List[tuple]) -> None:
         """...
 
         Parameters
@@ -313,8 +341,7 @@ class Table:
     def n_cols(self) -> int:
         """Total number of columns in this table."""
         return (
-            self.db.
-            _table_list
+            self.db._table_list
             .SELECT("ncol")
             .WHERE(f"name='{self.name}'")
             .execute()
@@ -411,7 +438,7 @@ class Table:
 
         return result.name
 
-    def insert_row(self, row: tuple):
+    def insert_row(self, row: tuple) -> None:
         """
 
         Parameters
@@ -429,7 +456,7 @@ class Table:
                 .execute()
             )
 
-    def insert_array(self, array: ArrayLike) -> None:
+    def insert_array(self, array: List[tuple]) -> None:
         """
 
         Parameters
@@ -556,3 +583,7 @@ class Column:
         """"""
         return pd.read_sql(self.to_sql(), self.db.connection)
 
+
+class Tables(UserDict):
+    def __init__(self, db, *args, **kwargs):
+        self.db = db
