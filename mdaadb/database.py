@@ -178,7 +178,7 @@ class Database:
             table = Table(table, self)
 
         if columns:
-            place_holders = "(" + ", ".join((len(columns) * "?").split()) + ")"
+            place_holders = "(" + ", ".join(len(columns)*"?".split()) + ")"
             column_names = ", ".join(columns)
             tbl_with_cols = f"{table.name} ({column_names})"
             with self.connection:
@@ -190,7 +190,7 @@ class Database:
 
             return
 
-        place_holders = "(" + ", ".join((table.n_cols * "?").split()) + ")"
+        place_holders = "(" + ", ".join(table.n_cols*"?".split()) + ")"
         with self.connection:
             (
                 self.INSERT_INTO(table.name)
