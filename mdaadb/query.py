@@ -13,9 +13,14 @@ from . import database
 
 
 def register_command(dependency=None):
-    """"""
+    """SQLite keyword decorator for `Query` methods.
 
+    When a method is called, the keyword is bundled with input fields
+    into a `Command` object, then registered into `Query.registered_commands`.
+
+    """
     def decorator(func):
+
         @wraps(func)
         def wrapper(self, *args):
             keyword = wrapper.__name__.replace("_", " ")
@@ -26,7 +31,6 @@ def register_command(dependency=None):
             self.registered_commands.append(
                 Command(keyword, fields, dependency)
             )
-
             return func(self, *args)
 
         return wrapper
@@ -46,18 +50,20 @@ class Command:
 
 
 class Query:
-    """
+    """SQLite query object that implements the "builder" design pattern
+    to build a full query statement from individual SQLite commands."""
 
-    Parameters
-    ----------
-    db : `Database` or path-like
-        Database to execute queries on. If path-like, will
-        call `Database(db)`. Use ":memory:" to execute queries
-        on a temporary in memory database.
+    def __init__(self, db: database.Database | pathlib.Path | str) -> None:
+        """`Query` constructor.
 
-    """
+        Parameters
+        ----------
+        db : `Database` or path-like
+            Database to execute queries on. If path-like, will
+            call `Database(db)`. Use ":memory:" to execute queries
+            on a temporary in memory database.
 
-    def __init__(self, db):
+        """
         if isinstance(db, pathlib.Path) or isinstance(db, str):
             self.db = database.Database(db)
         else:
@@ -138,13 +144,44 @@ class Query:
         """"""
         self.db.connection.commit()
 
+    @register_command(dependency="ALTER TABLE")
+    def ADD_COLUMN(self, column_def: str) -> Self:
+        """Add ADD COLUMN command to the current Query.
+
+        Parameters
+        ----------
+        column_def : str
+
+        Returns
+        -------
+        self : `Query`
+            ...
+
+        """
+        return self
+
     @register_command()
-    def CREATE_TABLE(self, tbl_schema: str) -> Self:
+    def ALTER_TABLE(self, table_name: str) -> Self:
+        """Add ALTER TABLE command to the current Query.
+
+        Parameters
+        ----------
+        table_name : str
+
+        Returns
+        -------
+        self : `Query`
+
+        """
+        return self
+
+    @register_command()
+    def CREATE_TABLE(self, table_schema: str) -> Self:
         """Add CREATE TABLE command to the current Query.
 
         Parameters
         ----------
-        tbl_schema : str
+        table_schema : str
             The table schema/structure.
 
         Returns
@@ -217,7 +254,6 @@ class Query:
 
         """
         return self
-
 
     @register_command()
     def LIMIT(self, limit: str) -> Self:
@@ -321,6 +357,56 @@ class Query:
         """
         return self
 
+    @register_command(dependency="FROM")
+    def SELECT_DISTINCT(self, *columns: str) -> Self:
+        """Add SELECT DISTINCT command to the current Query.
+
+        Parameters
+        ----------
+        *columns : str
+            ...
+
+        Returns
+        -------
+        self : Query
+            ...
+
+        """
+        return self
+
+    @register_command(dependency="UPDATE")
+    def SET(self, *column_exprs) -> Self:
+        """Add SET command to the current Query.
+
+        Parameters
+        ----------
+        *column_exprs : str
+            ...
+
+        Returns
+        -------
+        self : Query
+            ...
+
+        """
+        return self
+
+    @register_command()
+    def UPDATE(self, table_name: str) -> Self:
+        """Add UPDATE command to the current Query.
+
+        Parameters
+        ----------
+        table_name : str
+            ...
+
+        Returns
+        -------
+        self : Query
+            ...
+
+        """
+        return self
 
     @register_command(dependency="INSERT INTO")
     def VALUES(self, values: str) -> Self:

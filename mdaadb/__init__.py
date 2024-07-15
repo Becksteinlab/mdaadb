@@ -8,7 +8,7 @@ from importlib.metadata import version
 
 from .query import Query
 from .database import Database, Table
-from .analysis import DBAnalysisRunner
+from .analysis import DBAnalysisManager
 
 
 __version__ = version("mdaadb-kit")
