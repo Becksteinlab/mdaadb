@@ -1,12 +1,13 @@
 from functools import wraps
 from collections import UserDict
 from dataclasses import dataclass
-from typing import List
+from typing import Sequence
 try:
     from typing import Self
 except ImportError:
     from typing_extensions import Self
 import pathlib
+import sqlite3
 import pandas as pd
 
 from . import database
@@ -42,7 +43,7 @@ def register_command(dependency=None):
 class Command:
     """SQLite command"""
     keyword: str
-    fields: List[str]
+    fields: list[str]
     dependency: str | None
 
     def to_sql(self):
@@ -50,26 +51,27 @@ class Command:
 
 
 class Query:
-    """SQLite query object that implements the "builder" design pattern
-    to build a full query statement from individual SQLite commands."""
+    """SQLite query object.
+
+    Implements the "builder" design pattern to build
+    a full query statement from individual SQLite commands.
+
+    Parameters
+    ----------
+    db : `Database` or path-like
+        Database to execute queries on. If path-like, will
+        call `Database(db)`. Use ":memory:" to execute queries
+        on a temporary in memory database.
+
+    """
 
     def __init__(self, db: database.Database | pathlib.Path | str) -> None:
-        """`Query` constructor.
-
-        Parameters
-        ----------
-        db : `Database` or path-like
-            Database to execute queries on. If path-like, will
-            call `Database(db)`. Use ":memory:" to execute queries
-            on a temporary in memory database.
-
-        """
         if isinstance(db, pathlib.Path) or isinstance(db, str):
             self.db = database.Database(db)
         else:
             assert isinstance(db, database.Database)
             self.db = db
-        self.registered_commands: List[Command] = []
+        self.registered_commands: list[Command] = []
 
     def __repr__(self):
         return self.to_sql()
@@ -92,7 +94,6 @@ class Query:
             If a command is missing a dependency command.
 
         """
-
         cmds = self.registered_commands
 
         if not cmds:
@@ -114,7 +115,7 @@ class Query:
         """Execute the current Query and return result as pandas DataFrame."""
         return pd.read_sql(self.to_sql(), self.db.connection)
 
-    def execute(self):
+    def execute(self) -> sqlite3.Cursor:
         """Execute the current Query a single time.
 
         Returns
@@ -123,14 +124,14 @@ class Query:
             Database cursor iterator that iterators over results of query
 
         """
-        return self.db.cursor.execute(self.to_sql())
+        return self.db.connection.execute(self.to_sql())
 
-    def executemany(self, rows):
+    def executemany(self, rows) -> sqlite3.Cursor:
         """Execute the current parameterized Query for every item in `rows`.
 
         Parameters
         ----------
-        rows : iterable of Row
+        rows : sequence
 
         Returns
         -------
@@ -138,11 +139,7 @@ class Query:
             Database cursor iterator that iterates over results of query
 
         """
-        return self.db.cursor.executemany(self.to_sql(), rows)
-
-    def commit(self):
-        """"""
-        self.db.connection.commit()
+        return self.db.connection.executemany(self.to_sql(), rows)
 
     @register_command(dependency="ALTER TABLE")
     def ADD_COLUMN(self, column_def: str) -> Self:

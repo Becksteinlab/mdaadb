@@ -7,7 +7,7 @@ A short description of the project.
 from importlib.metadata import version
 
 from .query import Query
-from .database import Database, Table
+from .database import Database, Table, Schema
 from .analysis import DBAnalysisManager
 
 

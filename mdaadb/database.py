@@ -1,18 +1,16 @@
 from __future__ import annotations
 
-import sqlite3
-import pathlib
-from dataclasses import dataclass
+from functools import wraps
 from collections import namedtuple, UserDict
+from dataclasses import dataclass
 from typing import (
     Optional,
-    List,
-    Tuple,
-    NamedTuple,
     Iterator,
     Sequence,
     Any,
 )
+import sqlite3
+import pathlib
 import pandas as pd
 
 from . import query
@@ -24,40 +22,35 @@ def _namedtuple_factory(cursor, row):
     return Row(*row)
 
 
+def verify_open_connection(func):
+    @wraps(func)
+    def wrapper(self: Database, *args, **kwargs):
+        if self.closed:
+            raise ValueError("Database connection is closed.")
+        return func(self, *args, **kwargs)
+    return wrapper
+
+
 class Database:
+    """Read from and write to a SQLite database.
+
+    Parameters
+    ----------
+    dbfile : path-like
+        Path to the database file.
+        Use ':memory:' for a temporary in-memory database.
+
+    """
 
     def __init__(self, dbfile: pathlib.Path | str):
-        """Database constructor.
-
-        Parameters
-        ----------
-        dbfile : path-like
-            Path to the database file.
-            Use ':memory:' for a temporary in-memory database.
-
-        """
         if isinstance(dbfile, str):
             self.dbfile = pathlib.Path(dbfile)
         else:
             self.dbfile = dbfile
-        self.connection = None
-        self.cursor = None
-        self.open()
+        self._connection: sqlite3.Connection = sqlite3.connect(self.dbfile)
+        self._connection.row_factory = _namedtuple_factory
 
-    def open(self):
-        """Open a connection to `self.dbfile` if it is not already open."""
-        if self.connection is None:
-            self.connection = sqlite3.connect(self.dbfile)
-            self.connection.row_factory = _namedtuple_factory
-            self.cursor = self.connection.cursor()
-
-    def close(self):
-        """Close the connection to `self.dbfile` if it is open."""
-        if self.connection is not None:
-            self.connection.close()
-            self.connection = None
-            self.cursor = None
-
+    @verify_open_connection
     def get_table(self, table_name: str) -> Table:
         """Get a table from this database by name.
 
@@ -74,11 +67,12 @@ class Database:
             raise ValueError(f"'{table_name}' not in database")
         return Table(table_name, self)
 
+    @verify_open_connection
     def create_table(
         self,
         schema: Schema | str,
         STRICT: Optional[bool] = True,
-        ) -> Table:
+    ) -> Table:
         """Create a table inside this database.
 
         Parameters
@@ -94,10 +88,6 @@ class Database:
         `self.connection.commit()` is automatically called.
 
         """
-
-        if self.connection is None:
-            raise ValueError("Database connection is closed.")
-
         if isinstance(schema, str):
             schema = Schema.from_str(schema)
 
@@ -112,12 +102,13 @@ class Database:
 
         return self.get_table(table_name)
 
+    @verify_open_connection
     def insert_row_into_table(
         self,
         table: Table | str,
-        row: Tuple,
+        row: tuple,
         columns: Optional[Sequence[str]] = None,
-        ) -> None:
+    ) -> None:
         """Insert a single row into a table within this database.
 
         Parameters
@@ -129,36 +120,32 @@ class Database:
             Must be defined if not inserting an element into every column.
 
         """
-        if self.connection is None:
-            raise ValueError("Database connection is closed.")
-
         if isinstance(table, str):
             table = Table(table, self)
 
-        if columns:
+        if columns is not None:
             column_names = ", ".join(columns)
             tbl_with_cols = f"{table.name} ({column_names})"
-            with self.connection:
-                (
-                    self.INSERT_INTO(tbl_with_cols)
-                    .VALUES(str(row))
-                    .execute()
-                )
-            return
-
-        with self.connection:
-            (
-                self.INSERT_INTO(table.name)
+            with self.connection: (
+                self.INSERT_INTO(tbl_with_cols)
                 .VALUES(str(row))
                 .execute()
             )
+            return
 
+        with self.connection: (
+            self.INSERT_INTO(table.name)
+            .VALUES(str(row))
+            .execute()
+        )
+
+    @verify_open_connection
     def insert_rows_into_table(
         self,
         table: Table | str,
-        rows: List[Tuple],
+        rows: list[tuple],
         columns: Optional[Sequence[str]] = None,
-        ) -> None:
+    ) -> None:
         """Insert multiple rows into a table within this database.
 
         Parameters
@@ -171,38 +158,33 @@ class Database:
             Must be defined if not inserting an element into every column.
 
         """
-        if self.connection is None:
-            raise ValueError("Database connection is closed.")
-
         if isinstance(table, str):
             table = Table(table, self)
 
-        if columns:
+        if columns is not None:
             place_holders = "(" + ", ".join(len(columns)*"?".split()) + ")"
             column_names = ", ".join(columns)
             tbl_with_cols = f"{table.name} ({column_names})"
-            with self.connection:
-                (
-                    self.INSERT_INTO(tbl_with_cols)
-                    .VALUES(place_holders)
-                    .executemany(rows)
-                )
-
-            return
-
-        place_holders = "(" + ", ".join(table.n_cols*"?".split()) + ")"
-        with self.connection:
-            (
-                self.INSERT_INTO(table.name)
+            with self.connection: (
+                self.INSERT_INTO(tbl_with_cols)
                 .VALUES(place_holders)
                 .executemany(rows)
             )
+            return
 
+        place_holders = "(" + ", ".join(table.n_cols*"?".split()) + ")"
+        with self.connection: (
+            self.INSERT_INTO(table.name)
+            .VALUES(place_holders)
+            .executemany(rows)
+        )
+
+    @verify_open_connection
     def add_column_to_table(
         self,
         table: Table | str,
         column_def: str,
-        ) -> None:
+    ) -> None:
         """Add a column to a table within this database.
 
         Parameters
@@ -213,27 +195,24 @@ class Database:
             <TYPE> must be a valid SQLite type.
 
         """
-        if self.connection is None:
-            raise ValueError("Database connection is closed.")
-
         if isinstance(table, str):
             table = Table(table, self)
 
-        with self.connection:
-            (
-                self.ALTER_TABLE(table.name)
-                .ADD_COLUMN(column_def)
-                .execute()
-            )
+        with self.connection: (
+            self.ALTER_TABLE(table.name)
+            .ADD_COLUMN(column_def)
+            .execute()
+        )
 
+    @verify_open_connection
     def update_column_in_table(
         self,
         table: Table | str,
         column_name: str,
         values: Sequence,
         ids: Optional[Sequence[int]] = None,
-        ) -> None:
-        """Update a column of a table within this database.
+    ) -> None:
+        """Update the column of a table within this database.
 
         Parameters
         ----------
@@ -243,40 +222,30 @@ class Database:
         ids : sequence of int
 
         """
-        if self.connection is None:
-            raise ValueError("Database connection is closed.")
-
         if isinstance(table, str):
             table = Table(table, self)
 
         if ids is None:
             assert len(values) == len(table)
-            # better to use generator or list comprehension here ??
-            data = (
-                (val, id)
-                for val, id in zip(values, table._get_rowids())
-            )
+            data = zip(values, table._get_rowids())
         else:
             assert len(values) == len(ids)
-            data = (
-                (val, id)
-                for val, id in zip(values, ids)
-            )
+            data = zip(values, ids)
 
-        with self.connection:
-            (
-                self.UPDATE(table.name)
-                .SET(f"{column_name} = ?")
-                .WHERE(f"{table.pk} = ?")
-                .executemany(data)
-            )
+        with self.connection: (
+            self.UPDATE(table.name)
+            .SET(f"{column_name} = ?")
+            .WHERE(f"{table.pk} = ?")
+            .executemany(data)
+        )
 
+    @verify_open_connection
     def insert_column_into_table(
         self,
         table: Table | str,
         column_def: str,
         values: Sequence,
-        ) -> None:
+    ) -> None:
         """Insert a column into a table within this database.
 
         Parameters
@@ -286,9 +255,6 @@ class Database:
         values : sequence of values
 
         """
-        if self.connection is None:
-            raise ValueError("Database connection is closed.")
-
         if isinstance(table, str):
             table = Table(table, self)
 
@@ -333,9 +299,37 @@ class Database:
         """
         return (Table(name, self) for name in self._get_table_names())
 
-    def _get_table_names(self) -> List[str]:
+    def _get_table_names(self) -> list[str]:
         """Helper function to get table names in this database."""
         return list(self.table_list["name"])
+
+    @property
+    def connection(self) -> sqlite3.Connection:
+        return self._connection
+
+    @property
+    def cursor(self) -> sqlite3.Cursor:
+        return self.connection.cursor()
+
+    def open(self) -> None:
+        """Open a connection to `self.dbfile` if it is not already open."""
+        if self.closed:
+            self._connection = sqlite3.connect(self.dbfile)
+            self._connection.row_factory = _namedtuple_factory
+
+    def close(self) -> None:
+        """Close the connection to `self.dbfile` if it is not already closed."""
+        if not self.closed:
+            self.connection.close()
+
+    @property
+    def closed(self) -> bool:
+        """Whether the connection to database is closed or not."""
+        try:
+            self.SELECT("*").FROM("sqlite_schema").LIMIT("1")
+            return False
+        except sqlite3.ProgrammingError:
+            return True
 
     def ALTER_TABLE(self, table_name: str) -> query.Query:
         """SQLite ALTER TABLE statement entry point via database.
@@ -534,9 +528,9 @@ class Table:
 
     def insert_row(
         self,
-        row: Tuple,
+        row: tuple,
         columns: Optional[Sequence[str]] = None,
-        ) -> None:
+    ) -> None:
         """Insert a single row into this table.
 
         Parameters
@@ -551,9 +545,9 @@ class Table:
 
     def insert_rows(
         self,
-        rows: List[Tuple],
+        rows: list[tuple],
         columns: Optional[Sequence[str]] = None,
-        ) -> None:
+    ) -> None:
         """Insert multiple rows into this table.
 
         Parameters
@@ -570,7 +564,7 @@ class Table:
     def add_column(
         self,
         column_def: str
-        ) -> None:
+    ) -> None:
         """Add a column to this table.
 
         Parameters
@@ -584,26 +578,26 @@ class Table:
 
     def update_column(
         self,
-        column: str,
+        column_name: str,
         values: Sequence,
         ids: Optional[Sequence[int]] = None,
-        ) -> None:
+    ) -> None:
         """Update a column in this table.
 
         Parameters
         ----------
-        column : str
+        column_name : str
         values :
         ids :
 
         """
-        self.db.update_column_in_table(self, column, values, ids=ids)
+        self.db.update_column_in_table(self, column_name, values, ids=ids)
 
     def insert_column(
         self,
         column_name: str,
         values: Sequence,
-        ) -> None:
+    ) -> None:
         """Insert a column into this table.
 
         Parameters
@@ -641,7 +635,7 @@ class Table:
         _schema = (
             self.db._schema
             .SELECT("sql")
-            .WHERE(f"name='{self.name}'")
+            .WHERE(f"name = '{self.name}'")
             .execute()
             .fetchone()
             .sql
@@ -659,7 +653,7 @@ class Table:
         return (
             self.db._table_list
             .SELECT("ncol")
-            .WHERE(f"name='{self.name}'")
+            .WHERE(f"name = '{self.name}'")
             .execute()
             .fetchone()
             .ncol
@@ -683,7 +677,7 @@ class Table:
         """
         return (Column(name, self) for name in self._get_column_names())
 
-    def _get_rowids(self) -> List[int]:
+    def _get_rowids(self) -> list[int]:
         """Helper function that returns a list of integer indices
         that correspond to the primary key of this table."""
         rowids = (
@@ -693,7 +687,7 @@ class Table:
         )
         return [id[0] for id in rowids]
 
-    def _get_column_names(self) -> List[str]:
+    def _get_column_names(self) -> list[str]:
         return list(self.info["name"])
 
     @property
@@ -861,7 +855,7 @@ class Column:
         )
 
     @property
-    def data(self) -> List[Any]:
+    def data(self) -> list[Any]:
         return [row[0] for row in self._q.execute().fetchall()]
 
     def to_sql(self) -> str:
@@ -907,8 +901,8 @@ def touch(dbfile: pathlib.Path | str) -> None:
     """
     obsv_schema = """
     Observables (
-        obsName TEXT,
-        notes TEXT,
+        name TEXT PRIMARY KEY,
+        description TEXT,
         creator TEXT,
         timestamp DATETIME DEFAULT (strftime('%m-%d-%Y %H:%M', 'now', 'localtime'))
     )
@@ -920,5 +914,14 @@ def touch(dbfile: pathlib.Path | str) -> None:
 
 
 # class Tables(UserDict):
+#
 #     def __init__(self, db, *args, **kwargs):
-#         self.db = db
+#         self.__dict__["Simulations"] = {}
+#         self.__dict__["Observables"] = {}
+#
+#     def __getitem__(self, key):
+#         ...
+#
+#     def __getattr__(self, attr):
+#         return self[attr]
+
