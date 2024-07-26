@@ -88,7 +88,16 @@ class DBAnalysisManager:
 
         return universe
 
-    def run(self, simID: int, **kwargs: dict) -> None:
+    def run(
+        self,
+        simID: int,
+        start=None,
+        stop=None,
+        step=None,
+        frames=None,
+        verbose=None,
+        **kwargs: dict
+    ) -> None:
         """Run the analysis for a simulation given by `simID`.
 
         Parameters
@@ -108,7 +117,9 @@ class DBAnalysisManager:
         if self.hooks["pre_run"] is not None:
             self.hooks["pre_run"](self.db, simID)
 
-        self._analysis.run()
+        self._analysis.run(
+            start=start, stop=stop, step=step, frames=frames, verbose=verbose
+        )
 
         if self.hooks["post_run"] is not None:
             self.hooks["post_run"](self.db, simID)
