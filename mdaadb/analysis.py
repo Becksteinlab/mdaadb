@@ -24,8 +24,7 @@ class DBAnalysisManager:
         Analysis, # : class that inherits from AnalysisBase
         dbfile: pathlib.Path | str,
         hooks: Optional[dict] = None,
-    ):
-
+    ) -> None:
         self.Analysis = Analysis
         if isinstance(dbfile, Database):
             self.db = dbfile
@@ -130,7 +129,7 @@ class DBAnalysisManager:
         #     assert analysis_table.schema == self.Analysis.schema
 
         simID = self._analysis._simID
-        if simID in [row[0] for row in analysis_table.SELECT("SimulationID").execute().fetchall()]:
+        if simID in [row[0] for row in analysis_table.SELECT_DISTINCT("simID").execute().fetchall()]:
             raise ValueError(
                 f"'{self._name}' table already has data for simID {simID}"
             )
