@@ -150,6 +150,7 @@ class DBAnalysisManager:
         return self._analysis.results
 
     def __enter__(self):
+        self.db.open()
         return self
 
     def __exit__(self, *args):
