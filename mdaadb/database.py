@@ -326,7 +326,7 @@ class Database:
     def closed(self) -> bool:
         """Whether the connection to database is closed or not."""
         try:
-            self.SELECT("*").FROM("sqlite_schema").LIMIT("1")
+            self.SELECT("*").FROM("sqlite_schema").LIMIT("1").execute()
             return False
         except sqlite3.ProgrammingError:
             return True
