@@ -69,7 +69,7 @@ class DBAnalysisManager:
                 STRICT=False,
             )
 
-        if self._name not in self.observables.get_column("Name").data:
+        if self._name not in self.observables.get_column("name").data:
             # print(self._name, self._desc, self._path)
             self.observables.insert_row(
                 row=(self._name, self._desc, self._creator),
