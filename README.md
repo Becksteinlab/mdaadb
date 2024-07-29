@@ -21,7 +21,7 @@ MDAnalysis Analysis Database
 [url_license]: https://www.gnu.org/licenses/gpl-2.0
 [url_mda]: https://www.mdanalysis.org
 
-A short description of the project.
+A package that interfaces SQLite database IO with MDAnalysis analysis results.
 
 MDAnalysis Analysis Database is bound by a [Code of Conduct](https://github.com/BecksteinLab/mdaadb-kit/blob/main/CODE_OF_CONDUCT.md).
 
